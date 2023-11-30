@@ -1,0 +1,14 @@
+{
+    "makefile.launchConfigurations": [
+        {
+            "cwd": "/home/leonidsah/Desktop/scull_driver",
+            "binaryPath": "/home/leonidsah/Desktop/scull_driver/p3.o",
+            "binaryArgs": []
+        }
+    ],
+    "files.associations": {
+        "string.h": "c",
+        "fcntl.h": "c",
+        "unistd.h": "c"
+    }
+}
