@@ -1,1 +1,0 @@
-cmd_/home/leonidsah/Desktop/scull_driver/Module.symvers :=  scripts/mod/modpost -m -a     -o /home/leonidsah/Desktop/scull_driver/Module.symvers -T /home/leonidsah/Desktop/scull_driver/modules.order -i Module.symvers -e 
