@@ -5,11 +5,17 @@
 #include <linux/slab.h> 	
 #include <asm/uaccess.h>
 
+
 int scull_major = 0;		
 int scull_minor = 0;		
 int scull_nr_devs = 2;		
 int scull_quantum = 4000;	
 int scull_qset = 1000;		
+
+// Очереди для условий блокировки
+DECLARE_WAIT_QUEUE_HEAD(read_queue);
+DECLARE_WAIT_QUEUE_HEAD(write_queue);
+DEFINE_MUTEX(scull_mutex);
 
 struct scull_qset {
 	void **data;			
@@ -119,9 +125,32 @@ ssize_t scull_read(struct file *flip, char __user *buf, size_t count,
 	int itemsize = quantum * qset;
 	int item, s_pos, q_pos, rest;
 	ssize_t rv = 0;
+	bool clear_buffer = 0;
 
 	if (down_interruptible(&dev->sem))	
 		return -ERESTARTSYS;
+
+	/* Блокировка если читать нечего */
+	while (dev->size <= 0)
+    {
+        printk("Ого, в буфере пусто");
+        if (filp->f_flags & O_NONBLOCK)
+        {
+            up(&dev->sem);
+            return -EAGAIN;
+        }
+
+        // Ждем пока в буфере что-то появится */
+        up(&dev->sem);
+        wait_event_interruptible(read_queue, dev->size > 0);
+        if (down_interruptible(&dev->sem))
+            return -ERESTARTSYS;
+    }
+	// Если происходит блокировка по записи потому что буфер заполнен
+	// то буфер должен где-то очищаться. Это происходит при чтении
+	// когда флаг ниже выставлен в 1
+	if (dev->size >= max_siz) clear_buffer = 1;
+	/*********************************/
 
 	if (*f_pos >= dev->size) {		
 		printk(KERN_INFO "scull: *f_pos more than size %lu\n", dev->size);
@@ -152,12 +181,25 @@ ssize_t scull_read(struct file *flip, char __user *buf, size_t count,
 		goto out;
 	}
 
-	
 	*f_pos += count;		
 	rv = count;
 
+	/* Если буфер был заполнен, то он очищается */
+    if (flag)
+    {
+        retval = count;
+        count = 0;
+        *f_pos = 0;
+        dev->size = 0;
+        scull_trim(dev);
+    }
+    else retval += count;
+	/*********************************/
+
 out:
 	up(&dev->sem);
+	// Будим процессы ожидающие записи
+	wake_up_interruptible(&write_queue); // разбудить процессы, ожидающие записи
 	return rv;
 }
 
@@ -173,7 +215,21 @@ ssize_t scull_write(struct file *flip, const char __user *buf, size_t count,
 
 	if (down_interruptible(&dev->sem))
 		return -ERESTARTSYS;
-
+	/* Блокировка записи если буфер переполнен */
+	while (dev->size >= max_size)
+    {
+        printk("Буфер заполнен / переполнен");
+       
+        /* Освобождаем блокировку и ждем изменения размера буфера */
+        up(&dev->sem);
+		if (filp->f_flags & O_NONBLOCK) return -EAGAIN; // Выдать ошибку если поставлен неблокирующий режим
+        wait_event_interruptible(write_queue, dev->size < max_size);
+        if (down_interruptible(&dev->sem))
+            return -ERESTARTSYS;
+    }
+	
+	
+	/* Находим списковый объект, индекс qset, и смещение в кванте */
 	item = (long)*f_pos / itemsize;
 	rest = (long)*f_pos % itemsize;
 	
@@ -218,6 +274,8 @@ ssize_t scull_write(struct file *flip, const char __user *buf, size_t count,
 
 out:
 	up(&dev->sem);
+	// Будим процессы, ожидающие чтения
+	wake_up_interruptible(&read_queue);
 	return rv;
 }
 
@@ -296,7 +354,6 @@ static int scull_init_module(void)
 	dev = MKDEV(scull_major, scull_minor + scull_nr_devs);	
 	
 	printk(KERN_INFO "scull: major = %d minor = %d\n", scull_major, scull_minor);
-
 	return 0;
 
 fail:
@@ -304,7 +361,7 @@ fail:
 	return rv;
 }
 
-MODULE_AUTHOR("AUTHOR");
+MODULE_AUTHOR("leonidsah");
 MODULE_LICENSE("GPL");
 
 module_init(scull_init_module);		
