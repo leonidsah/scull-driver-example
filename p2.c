@@ -13,10 +13,8 @@ int main()
 {
 	int fd1, fd2, writeResult;
 	char write_buf[WRITE_SIZE], read_buf[WRITE_SIZE];
-	char bufff[200];
 	fd1 = open(DEV1, O_RDWR);
 	fd2 = open(DEV2, O_RDWR);
-	int con = open("/dev/pts/2", O_WRONLY);
 	if (fd1 == -1 || fd2 == -1)
 	{
 		perror("Error opening fd1 or fd2\n");
@@ -24,14 +22,9 @@ int main()
 	}
 	for (int i = 0; i < WRITE_SIZE; i++)
 		write_buf[i] = (char)(FIRST_CH + i); // ABC ...
-	write(con, "\n\n\n", sizeof("\n\n\n"));
-//#define WR_MSG "P2: writing to dev1..."
-//#define RE_MSG ".. P2: reading from dev0.."
 	while (1)
 	{
-		//write(con, RE_MSG, sizeof(RE_MSG));
 		int rs2 = read(fd1, read_buf, sizeof(char) * WRITE_SIZE);
-		//write(con, WR_MSG, sizeof(WR_MSG));
 		int rs1 = write(fd2, write_buf, sizeof(char) * WRITE_SIZE);
 		if (rs1 == -1)
 			perror("P2: write to fd2 failed");
@@ -47,8 +40,7 @@ int main()
 		{
 			write_buf[i] = (write_buf[i] + WRITE_SIZE - FIRST_CH) % ENG_ALPH_C + FIRST_CH;
 		}
-		//sprintf(bufff, "P2: executing... write_buf[0]: %s", write_buf);
-		//perror(bufff);
+		
 		sleep(1);
 	}
 	return 0;

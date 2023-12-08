@@ -238,7 +238,7 @@ ssize_t scull_write(struct file *flip, const char __user *buf, size_t count,
 		*f_pos = 0;
 		dev->reset_write_f_pos = 0;
 	}
-	printk("perform write, *f_pos = %lu, flip->f_pos: %lu", *f_pos, flip->f_pos);
+	//printk("perform write, *f_pos = %lu, flip->f_pos: %lu", *f_pos, flip->f_pos);
 	//printk(KERN_INFO "perform write: %s\n", buf);
 	if (down_interruptible(&dev->sem))
 		return -ERESTARTSYS;

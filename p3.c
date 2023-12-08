@@ -33,18 +33,12 @@ int main()
 		perror("Error opening fd1 or fd2\n");
 		return -1;
 	}
-	printf(" P1_w   ║ P2_r   ║ P2_w   ║ P1_r   ║ P3_r (dev1,dev2)\n");
+	printf(" P1_w   ║ P2_r   ║ P2_w   ║ P1_r   ║ P3_r (dev0,dev1)\n");
 	printf("════════╬════════╬════════╬════════╬═════════════════\n");
-	int con = open("/dev/pts/3", O_WRONLY);
-	write(con, "\n\n\n", sizeof("\n\n\n"));
-// #define RE1_MSG "P3: reading dev0...  "
-// #define RE2_MSG " .. P3: reading dev1..  "
 	while (1)
 	{
 		int r1, r2;
-		//write(con, RE1_MSG, sizeof(RE1_MSG));
 		r1 = read(fd1, dev1_read, sizeof(char) * WRITE_SIZE);
-		//write(con, RE2_MSG, sizeof(RE2_MSG));
 		r2 = read(fd2, dev2_read, sizeof(char) * WRITE_SIZE);
 		fread(P1_read, sizeof(char), WRITE_SIZE, fs1);
 		fread(P1_write, sizeof(char), WRITE_SIZE, fs1);
@@ -55,8 +49,9 @@ int main()
 			perror("Error reading the data");
 			return 0;
 		}
+		//sprintf(bufff, "P3: executing... dev1 read: %s", dev2_read);
+		//perror(bufff);
 		printf("  %2s    ║   %2s   ║   %2s   ║   %2s   ║  %2s,%2s\n", P1_write, P2_read, P1_read, P2_write, dev1_read, dev2_read);
-		//printf("  %2s    ║   %2s   ║   %2s   ║   %2s   \n", P1_write, P2_read, P1_read, P2_write);
 		sleep(1);
 	}
 	pclose(fs1);
