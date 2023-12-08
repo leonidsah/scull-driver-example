@@ -9,8 +9,8 @@
 int scull_major = 0;		
 int scull_minor = 0;		
 int scull_nr_devs = 2;		
-int scull_quantum = 4000;	
-int scull_qset = 1000;		
+int scull_quantum = 3;	
+int scull_qset = 1;		
 
 // Очереди для условий блокировки
 DECLARE_WAIT_QUEUE_HEAD(read_queue);
@@ -76,7 +76,7 @@ int scull_open(struct inode *inode, struct file *flip)
 		up(&dev->sem);
 	}
 	
-	printk(KERN_INFO "scull: device is opend\n");
+	printk(KERN_INFO "scull: device is opened\n");
 
 	return 0;
 }
@@ -126,6 +126,8 @@ ssize_t scull_read(struct file *flip, char __user *buf, size_t count,
 	int item, s_pos, q_pos, rest;
 	ssize_t rv = 0;
 	bool clear_buffer = 0;
+	int do_printk = 1;
+	printk("perform read");
 
 	if (down_interruptible(&dev->sem))	
 		return -ERESTARTSYS;
@@ -133,14 +135,17 @@ ssize_t scull_read(struct file *flip, char __user *buf, size_t count,
 	/* Блокировка если читать нечего */
 	while (dev->size <= 0)
     {
-        printk("Ого, в буфере пусто");
-        if (filp->f_flags & O_NONBLOCK)
+		if (do_printk) {
+        	printk("Буфер пуст");
+			do_printk = 0;
+		}
+        if (flip->f_flags & O_NONBLOCK)
         {
             up(&dev->sem);
             return -EAGAIN;
         }
 
-        // Ждем пока в буфере что-то появится */
+        // Ждем пока в буфере что-то появится
         up(&dev->sem);
         wait_event_interruptible(read_queue, dev->size > 0);
         if (down_interruptible(&dev->sem))
@@ -149,7 +154,11 @@ ssize_t scull_read(struct file *flip, char __user *buf, size_t count,
 	// Если происходит блокировка по записи потому что буфер заполнен
 	// то буфер должен где-то очищаться. Это происходит при чтении
 	// когда флаг ниже выставлен в 1
-	if (dev->size >= max_siz) clear_buffer = 1;
+	if (dev->size >= itemsize) 
+	{
+		printk(KERN_INFO "scull: clear_buffer is set to 1\n");
+		clear_buffer = 1;
+	}
 	/*********************************/
 
 	if (*f_pos >= dev->size) {		
@@ -158,7 +167,7 @@ ssize_t scull_read(struct file *flip, char __user *buf, size_t count,
 	}
 
 	if (*f_pos + count > dev->size) {	
-		printk(KERN_INFO "scull: correct count\n");	
+		printk(KERN_INFO "scull: incorrect count\n");	
 		count = dev->size - *f_pos;
 	}
 
@@ -170,36 +179,41 @@ ssize_t scull_read(struct file *flip, char __user *buf, size_t count,
 
 	dptr = scull_follow(dev, item);	
 
-	if (dptr == NULL || !dptr->data || !dptr->data[s_pos])
+	if (dptr == NULL || !dptr->data || !dptr->data[s_pos]) {
+		if (dptr == NULL) printk("dptr is null");
+		else if(!dptr->data) printk("dptr->data is null, f_pos: %lu, dev->size: %lu, itemsize: %lu", *f_pos, dev->size, itemsize);
+		else if (dptr->data[s_pos] == NULL) printk("dptr->data[s_pos] is null");
 		goto out;
+	}
 
 	if (count > quantum - q_pos)
 		count = quantum - q_pos;
 
 	if (copy_to_user(buf, dptr->data[s_pos] + q_pos, count)) {
 		rv = -EFAULT;
+		printk("Copy to user failed");
 		goto out;
 	}
 
 	*f_pos += count;		
 	rv = count;
 
+out:
 	/* Если буфер был заполнен, то он очищается */
-    if (flag)
+    if (clear_buffer)
     {
-        retval = count;
+		printk("ОЧИЩАЕМ БУФЕР, УРА!!!");
+        rv = count;
         count = 0;
         *f_pos = 0;
         dev->size = 0;
         scull_trim(dev);
     }
-    else retval += count;
 	/*********************************/
-
-out:
 	up(&dev->sem);
 	// Будим процессы ожидающие записи
 	wake_up_interruptible(&write_queue); // разбудить процессы, ожидающие записи
+	printk("end read");
 	return rv;
 }
 
@@ -212,18 +226,26 @@ ssize_t scull_write(struct file *flip, const char __user *buf, size_t count,
 	int itemsize = quantum * qset;
 	int item, s_pos, q_pos, rest;
 	ssize_t rv = -ENOMEM;
-
+	int do_printk = 1;
+	printk("perform write, *f_pos = %lu", *f_pos);
+	//printk(KERN_INFO "perform write: %s\n", buf);
 	if (down_interruptible(&dev->sem))
 		return -ERESTARTSYS;
 	/* Блокировка записи если буфер переполнен */
-	while (dev->size >= max_size)
-    {
-        printk("Буфер заполнен / переполнен");
+	printk("dev->size: %lu, itemsize: %lu", dev->size, itemsize);
+	while (dev->size >= itemsize)
+    {	
+		if (do_printk)
+        {
+			printk("Буфер заполнен / переполнен");
+			do_printk = 0;
+		}
+		
        
         /* Освобождаем блокировку и ждем изменения размера буфера */
         up(&dev->sem);
-		if (filp->f_flags & O_NONBLOCK) return -EAGAIN; // Выдать ошибку если поставлен неблокирующий режим
-        wait_event_interruptible(write_queue, dev->size < max_size);
+		if (flip->f_flags & O_NONBLOCK) return -EAGAIN; // Выдать ошибку если поставлен неблокирующий режим
+        wait_event_interruptible(write_queue, dev->size < itemsize);
         if (down_interruptible(&dev->sem))
             return -ERESTARTSYS;
     }
@@ -266,16 +288,23 @@ ssize_t scull_write(struct file *flip, const char __user *buf, size_t count,
 		goto out;
 	}
 
+	printk("*f_pos: %lu, count: %lu", *f_pos, count);
 	*f_pos += count;
+	printk("*f_pos: %lu", *f_pos);
+
 	rv = count;
 
-	if (dev->size < *f_pos)
+	if (dev->size < *f_pos) {
 		dev->size = *f_pos;
-
+		printk("code seciton 2352452 performed");
+	}
+		
+	printk("reach before out");
 out:
 	up(&dev->sem);
 	// Будим процессы, ожидающие чтения
 	wake_up_interruptible(&read_queue);
+	printk("end write");
 	return rv;
 }
 
