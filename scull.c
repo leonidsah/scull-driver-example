@@ -26,10 +26,12 @@ struct scull_dev {
 	struct scull_qset *data;  
 	int quantum;		 
 	int qset;		  
+	int reset_write_f_pos;
 	unsigned long size;	  
 	unsigned int access_key;  
 	struct semaphore sem;    
-	struct cdev cdev;	 
+	struct cdev cdev;
+
 };
 
 struct scull_dev *scull_device;
@@ -133,6 +135,7 @@ ssize_t scull_read(struct file *flip, char __user *buf, size_t count,
 		return -ERESTARTSYS;
 
 	/* Блокировка если читать нечего */
+	
 	while (dev->size <= 0)
     {
 		if (do_printk) {
@@ -202,13 +205,16 @@ out:
 	/* Если буфер был заполнен, то он очищается */
     if (clear_buffer)
     {
-		printk("ОЧИЩАЕМ БУФЕР, УРА!!!");
+		printk("Очистка буфера");
         rv = count;
         count = 0;
         *f_pos = 0;
         dev->size = 0;
+		flip->f_pos = 0;
+		dev->reset_write_f_pos = 1;
         scull_trim(dev);
     }
+	printk("after buffer clear: *f_pos = %lu, flip->f_pos: %lu", *f_pos, flip->f_pos);
 	/*********************************/
 	up(&dev->sem);
 	// Будим процессы ожидающие записи
@@ -227,7 +233,12 @@ ssize_t scull_write(struct file *flip, const char __user *buf, size_t count,
 	int item, s_pos, q_pos, rest;
 	ssize_t rv = -ENOMEM;
 	int do_printk = 1;
-	printk("perform write, *f_pos = %lu", *f_pos);
+	*f_pos = flip->f_pos;
+	if (dev->reset_write_f_pos == 1) {
+		*f_pos = 0;
+		dev->reset_write_f_pos = 0;
+	}
+	printk("perform write, *f_pos = %lu, flip->f_pos: %lu", *f_pos, flip->f_pos);
 	//printk(KERN_INFO "perform write: %s\n", buf);
 	if (down_interruptible(&dev->sem))
 		return -ERESTARTSYS;
@@ -305,6 +316,7 @@ out:
 	// Будим процессы, ожидающие чтения
 	wake_up_interruptible(&read_queue);
 	printk("end write");
+	flip->f_pos += count;
 	return rv;
 }
 
@@ -376,6 +388,7 @@ static int scull_init_module(void)
 	for (i = 0; i < scull_nr_devs; i++) {						
 		scull_device[i].quantum = scull_quantum;
 		scull_device[i].qset = scull_qset;
+		scull_device[i].reset_write_f_pos = 0;
 		sema_init(&scull_device[i].sem, 1);
 		scull_setup_cdev(&scull_device[i], i);					
 	}

@@ -27,9 +27,9 @@ int main()
         perror("Ошибка открытия устройства");
         return -1;
     }
+jump:
     printf("r - read, w - write\n");
     scanf(" %c", &ch);
-
     switch (ch) {
     case 'w':
         printf("Введите данные: ");
@@ -46,6 +46,7 @@ int main()
         }
         break;
     }
+    goto jump;
     close(fd);
     return 0;
 }
